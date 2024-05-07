@@ -1,0 +1,39 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/opt/ros/noetic/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/devel/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/common/can_sniffer/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/common/car_checker/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/control/controller/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/control/data_preparation/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/control/delaunay/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/estimation/graphslam/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/common/heartrate_monitor/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/common/launcher/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/control/learning_mpcc/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/perception/lidar/include/**",
+        "/home/henrique/SAut/project_ws/src/localization/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/common/mission_tracker/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/control/model_learning/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/control/new_planner/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/common/rtk/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/common/skidpad_builder/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/estimation/state_estimation/include/**",
+        "/home/henrique/fst/docker/autonomous-systems/src/control/torque_vectoring/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
