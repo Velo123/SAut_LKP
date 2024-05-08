@@ -1,5 +1,5 @@
 import rospy
-from nav_msgs.msg import Path
+from nav_msgs.msg import Odometry
 import matplotlib.pyplot as plt
 import tf
 import numpy as np
@@ -70,7 +70,7 @@ def main():
     listen_topic_pose = "/pose"
 
     # Subscribe to the /pose topic
-    rospy.Subscriber(listen_topic_pose, Path, pose_callback)
+    rospy.Subscriber(listen_topic_pose, Odometry, pose_callback)
 
     # Spin to keep the node running
     rospy.spin()
