@@ -62,18 +62,4 @@ def plot_robot_pose(x, y, theta):
     # Show the plot
     plt.show()
 
-def main():
-    # Initialize the ROS node
-    rospy.init_node('localization_node')
 
-    # Define the topic and message type
-    listen_topic_pose = "/pose"
-
-    # Subscribe to the /pose topic
-    rospy.Subscriber(listen_topic_pose, Odometry, pose_callback)
-
-    # Spin to keep the node running
-    rospy.spin()
-
-if __name__ == "__main__":
-    main()
