@@ -23,6 +23,37 @@ class MicroSimulator:
             np.array([-1, 0])  # left
         ]
         self.rate = rospy.Rate(10)  # 10 Hz
+        
+    def gorund_truth_pose(self):
+        msg = PoseStamped()
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = "map"
+
+        # Update position and orientation
+        direction = self.move_directions[self.move_index]
+        self.position += direction * 0.1
+        if np.linalg.norm(self.position - np.round(self.position)) < 0.1:
+            self.move_index = (self.move_index + 1) % 4
+
+        if direction[0] == 1:
+            self.orientation = 0
+        elif direction[0] == -1:
+            self.orientation = np.pi
+        elif direction[1] == 1:
+            self.orientation = np.pi / 2
+        elif direction[1] == -np.pi / 2:
+            self.orientation = -np.pi / 2
+
+        msg.pose.position.x = self.position[0]
+        msg.pose.position.y = self.position[1]
+        quaternion = tf.transformations.quaternion_from_euler(0, 0, self.orientation)
+        msg.pose.orientation.x = quaternion[0]
+        msg.pose.orientation.y = quaternion[1]
+        msg.pose.orientation.z = quaternion[2]
+        msg.pose.orientation.w = quaternion[3]
+
+        self.pose_pub.publish(msg)
+        
 
     def simulate_pose(self):
         msg = PoseStamped()
