@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 
-import rospy
-from nav_msgs.msg import OccupancyGrid
-from geometry_msgs.msg import Pose
+import yaml
 import numpy as np
 
-def generate_square_room_map():
-    rospy.init_node('generate_square_room_map')
-
-    map_pub = rospy.Publisher('/map', OccupancyGrid, queue_size=10)
-    rate = rospy.Rate(1)  # 1 Hz
-
+def generate_square_room_map_yaml(file_path):
     width = 100
     height = 100
     resolution = 0.1  # Each cell represents 0.1m x 0.1m
@@ -46,24 +39,18 @@ def generate_square_room_map():
     map_data[60:60+pillar_size, 5:5+pillar_size] = 100
     map_data[80:80+pillar_size, 5:5+pillar_size] = 100
 
-    # Convert the map to a 1D array
-    map_data_1d = map_data.flatten()
+    # Create the YAML dictionary
+    map_yaml = {
+        'resolution': resolution,
+        'width': width,
+        'height': height,
+        'origin': [0.0, 0.0, 0.0],
+        'data': map_data.flatten().tolist()
+    }
 
-    while not rospy.is_shutdown():
-        map_msg = OccupancyGrid()
-        map_msg.header.stamp = rospy.Time.now()
-        map_msg.header.frame_id = 'map'
-        map_msg.info.resolution = resolution
-        map_msg.info.width = width
-        map_msg.info.height = height
-        map_msg.info.origin = Pose()
-        map_msg.data = map_data_1d.tolist()
-
-        map_pub.publish(map_msg)
-        rate.sleep()
+    # Write the dictionary to a YAML file
+    with open(file_path, 'w') as file:
+        yaml.dump(map_yaml, file, default_flow_style=False)
 
 if __name__ == '__main__':
-    try:
-        generate_square_room_map()
-    except rospy.ROSInterruptException:
-        pass
+    generate_square_room_map_yaml('square_room_map.yaml')

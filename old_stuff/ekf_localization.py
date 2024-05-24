@@ -1,17 +1,17 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rospy
 import numpy as np
 import tf
-from sensor_msgs.msg import PoseStamped, LaserScan
-from nav_msgs.msg import OccupancyGrid
-import open3d as o3d
+from scipy.ndimage import sobel
+from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import OccupancyGrid, Odometry
+from visualization_msgs.msg import Marker
+from icp_algorithm import icp
 
-# Covariance for EKF simulation
+# Covariance for EKF
 Q = np.diag([0.1, 0.1, np.deg2rad(1.0)]) ** 2  # Process noise covariance
-R = np.diag([1.0, 1.0, np.deg2rad(5.0)]) ** 2  # Measurement noise covariance
-
-DT = 0.1  # time tick [s]
+R = np.diag([0.1, 0.1, np.deg2rad(1.0)]) ** 2  # Measurement noise covariance
 
 class EKF_Localization:
     def __init__(self, initial_state, initial_covariance):
@@ -19,62 +19,57 @@ class EKF_Localization:
         self.covariance = initial_covariance
         self.map_data = None
         self.map_point_cloud = None
+        self.marker_pub = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
+        self.prev_pose = initial_state
+
+    def odom_2_command(self, pose):
+        dist = np.sqrt((pose[0] - self.prev_pose[0])**2 + (pose[1] - self.prev_pose[1])**2)
+        delta_theta = pose[2] - self.prev_pose[2]
+        self.prev_pose = pose
+        return [dist, delta_theta]
 
     def predict(self, u):
-        theta = self.state[2]
-        delta_x = u[0] * np.cos(theta) * DT
-        delta_y = u[0] * np.sin(theta) * DT
-        delta_theta = u[1] * DT
+        delta_x = u[0] * np.cos(self.state[2])
+        delta_y = u[0] * np.sin(self.state[2])
+        delta_theta = u[1]
 
         self.state[0] += delta_x
         self.state[1] += delta_y
         self.state[2] += delta_theta
 
-        F = np.array([[1.0, 0, -delta_x * np.sin(theta)],
-                      [0, 1.0, delta_y * np.cos(theta)],
-                      [0, 0, 1.0]])
+        F = np.array([[1, 0, -delta_y],
+                      [0, 1, delta_x],
+                      [0, 0, 1]])
 
+        # Update covariance with process noise
         self.covariance = F @ self.covariance @ F.T + Q
+        print("Predicted state: ", self.state)
 
     def correct(self, z):
         if self.map_point_cloud is None:
             return
 
         laser_point_cloud = self.laser_to_point_cloud(z)
-
-        icp_result = self.icp(laser_point_cloud, self.map_point_cloud)
-        delta_x, delta_y, delta_theta = icp_result
-
-        self.state[0] += delta_x
-        self.state[1] += delta_y
-        self.state[2] += delta_theta
+        
+        icp_result = icp(laser_point_cloud, self.map_point_cloud)
+        #print("ICP result: ", icp_result)
+        delta_x, delta_y, delta_theta = icp_result    #icp_result[0], icp_result[1], icp_result[2]
 
         H = np.eye(3)
+        innovation = np.array([delta_x, delta_y, delta_theta])
+
+        # Calculate the Kalman Gain
         S = H @ self.covariance @ H.T + R
         K = self.covariance @ H.T @ np.linalg.inv(S)
+        print("Kalman gain: ", K)
 
-        innovation = np.array([delta_x, delta_y, delta_theta])
+        # Update the state and covariance
         self.state += K @ innovation
         self.covariance = (np.eye(len(self.state)) - K @ H) @ self.covariance
+        print("Innovation: ", innovation)
+        print("Corrected state: ", self.state)
 
-    def icp(self, source_points, target_points):
-        source = o3d.geometry.PointCloud()
-        source.points = o3d.utility.Vector3dVector(source_points)
-        target = o3d.geometry.PointCloud()
-        target.points = o3d.utility.Vector3dVector(target_points)
-
-        icp_result = o3d.pipelines.registration.registration_icp(
-            source, target, max_correspondence_distance=0.5,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
-        )
-
-        transformation = icp_result.transformation
-
-        delta_x = transformation[0, 3]
-        delta_y = transformation[1, 3]
-        delta_theta = np.arctan2(transformation[1, 0], transformation[0, 0])
-
-        return delta_x, delta_y, delta_theta
+        self.publish_marker(self.state[0], self.state[1], self.state[2])
 
     def laser_to_point_cloud(self, laser_data):
         angle = laser_data.angle_min
@@ -82,9 +77,14 @@ class EKF_Localization:
 
         for r in laser_data.ranges:
             if laser_data.range_min < r < laser_data.range_max:
-                x = r * np.cos(angle)
-                y = r * np.sin(angle)
-                point_cloud.append([x, y, 0])
+                x_laser = r * np.cos(angle)
+                y_laser = r * np.sin(angle)
+
+                # Transform from laser frame to global frame
+                x_global = self.state[0] + x_laser * np.cos(self.state[2]) - y_laser * np.sin(self.state[2])
+                y_global = self.state[1] + x_laser * np.sin(self.state[2]) + y_laser * np.cos(self.state[2])
+
+                point_cloud.append([x_global, y_global, 0])
             angle += laser_data.angle_increment
 
         return np.array(point_cloud)
@@ -95,25 +95,76 @@ class EKF_Localization:
         resolution = map_data.info.resolution
         origin = map_data.info.origin
 
+        # Reshape the map data into a 2D array
         map_array = np.array(map_data.data).reshape((height, width))
+
+        # Apply Sobel filter to detect edges
+        sobel_x = sobel(map_array, axis=1)
+        sobel_y = sobel(map_array, axis=0)
+        edges = np.hypot(sobel_x, sobel_y)
+
+        # Threshold the edges to get a binary edge map
+        edge_threshold = 100  # Adjust threshold as needed
+        edge_points = edges > edge_threshold
+
         point_cloud = []
 
         for y in range(height):
             for x in range(width):
-                if map_array[y, x] < 50:  # Adjust threshold as needed
+                if edge_points[y, x]:
                     wx = x * resolution + origin.position.x
                     wy = y * resolution + origin.position.y
                     point_cloud.append([wx, wy, 0])
 
-        return np.array(point_cloud)
+        point_cloud_np = np.array(point_cloud)
+        print("Map point cloud sample (edges only):", point_cloud_np[:5])  # Print first 5 points
+        return point_cloud_np
+
+    def publish_marker(self, x, y, theta):
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = rospy.Time.now()
+        marker.ns = "ekf"
+        marker.id = 0
+        marker.type = Marker.ARROW
+        marker.action = Marker.ADD
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = 0
+        
+        # Set orientation of the arrow based on theta
+        quaternion = tf.transformations.quaternion_from_euler(0, 0, theta)
+        marker.pose.orientation.x = quaternion[0]
+        marker.pose.orientation.y = quaternion[1]
+        marker.pose.orientation.z = quaternion[2]
+        marker.pose.orientation.w = quaternion[3]
+
+        marker.scale.x = 1.0  # Length of the arrow
+        marker.scale.y = 0.1  # Width of the arrow
+        marker.scale.z = 0.1
+
+        marker.color.a = 1.0
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+
+        self.marker_pub.publish(marker)
+        print("Published marker")
 
 def pose_callback(msg):
     global ekf
-    u = [msg.pose.position.x, tf.transformations.euler_from_quaternion([
-        msg.pose.orientation.x, msg.pose.orientation.y,
-        msg.pose.orientation.z, msg.pose.orientation.w
-    ])[2]]
-    ekf.predict(u)
+    # Extract pose from Odometry message
+    pose = msg.pose.pose
+    u = [
+        pose.position.x,
+        pose.position.y,
+        tf.transformations.euler_from_quaternion([
+            pose.orientation.x, pose.orientation.y,
+            pose.orientation.z, pose.orientation.w
+        ])[2]
+    ]
+    command = ekf.odom_2_command(u)
+    ekf.predict(command)
 
 def laser_callback(msg):
     global ekf
@@ -123,17 +174,21 @@ def map_callback(msg):
     global ekf
     ekf.map_data = msg
     ekf.map_point_cloud = ekf.map_to_point_cloud(msg)
+    print("Map received")
 
 if __name__ == "__main__":
     rospy.init_node("ekf_localization")
+    counter = 1
 
-    initial_state = np.zeros(3)
+    initial_state = np.array([1.9, 2.0, 0.0])
     initial_covariance = np.eye(3) * 0.1
 
     ekf = EKF_Localization(initial_state, initial_covariance)
 
-    rospy.Subscriber("/pose", PoseStamped, pose_callback)
+    if counter == 1:
+        rospy.Subscriber("/map", OccupancyGrid, map_callback)
+        counter = 0
+    rospy.Subscriber("/pose", Odometry, pose_callback)
     rospy.Subscriber("/laser", LaserScan, laser_callback)
-    rospy.Subscriber("/map", OccupancyGrid, map_callback)
-
+    
     rospy.spin()
